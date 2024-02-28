@@ -1,0 +1,67 @@
+.program lcd_driver
+
+; instruction format
+; |  31:27  |    26:9    |  8 |  7:0  |
+; |    ~    |   REPEAT   |CTRL|  DATA |
+
+.define public PERIOD 4
+.define public DATA_N 9
+.define public CTRL_N 2
+.define public REPEAT_BITS 18
+
+.side_set CTRL_N
+
+
+
+    ; 66ns full cycle
+next_word:
+    pull block          side 1
+    ; shift ctrl bit & data out (set write)
+    ; jmp next_word       side 0
+    out PINS, DATA_N    side 1
+    ; 15ns
+    ; unset write
+    mov x, osr          side 0
+    ; 51ns
+.wrap_target
+repeat_word:
+    jmp !x next_word    side 0
+    ; repeat data until x==0
+    nop                 side 3
+    nop                 side 0
+    jmp x-- repeat_word side 2 ; delete nop^, add [1] here
+    .wrap
+
+    
+
+
+
+%c-sdk {
+
+#include <hardware/clocks.h>
+
+static inline void lcd_driver_program_init(PIO pio, uint sm, uint offset, uint data_pins, uint ctrl_pins, float freq) {
+    pio_sm_config c = lcd_driver_program_get_default_config(offset);
+
+    // setup pins
+    for(int i=0; i<lcd_driver_DATA_N; i++) // data pins
+        pio_gpio_init(pio, data_pins+i);
+    sm_config_set_out_pins(&c, data_pins, lcd_driver_DATA_N);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pins, lcd_driver_DATA_N, true);
+
+    for(int i=0; i<lcd_driver_CTRL_N; i++) // control pins
+        pio_gpio_init(pio, ctrl_pins+i);
+    sm_config_set_sideset_pins(&c, ctrl_pins);
+    pio_sm_set_consecutive_pindirs(pio, sm, ctrl_pins, lcd_driver_CTRL_N, true);
+
+    sm_config_set_out_shift(&c, true, false, 0);
+
+    // clock speed
+    const float div = clock_get_hz(clk_sys) / (freq * lcd_driver_PERIOD);
+    sm_config_set_clkdiv(&c, div);  
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
