@@ -1,0 +1,54 @@
+/* SINGLE UART RECIEVER
+ * 
+ * Runs at F_CLK/16 baud (16 SM cycles per bit)
+ */
+
+.program uart_rx
+
+.define public BIT_T 16
+
+.wrap_target
+start:
+    ; wait for start bit
+    jmp pin start
+rx_begin:
+    ; transmission has begun
+    ; copy frame size from y
+    mov x y           [BIT_T/2 - 1]
+    nop               [BIT_T - 1]
+in_loop:
+    ; shift in frame_size bits
+    in pins 1         [BIT_T - 2]
+    jmp x-- in_loop
+    ; shift in 32-frame_size 0s
+    in null 24
+    ; loop to start
+.wrap
+
+% c-sdk {
+#include <hardware/clocks.h>
+
+static inline void uart_rx_program_init(PIO pio, uint sm, uint offset, uint pin, float baud, uint frame_size) {
+    pio_sm_config c = uart_rx_program_get_default_config(offset);
+
+    // pins
+    pio_gpio_init(pio, pin);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, pin);
+
+    // shift register
+    sm_config_set_in_shift(&c, true, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+
+    // clock speed
+    const float div = clock_get_hz(clk_sys) / (baud * uart_rx_BIT_T);
+    sm_config_set_clkdiv(&c, div);
+
+    // set frame size
+    pio_sm_exec_wait_blocking(pio, sm, pio_encode_set(pio_y, frame_size-1));
+
+    // init sm
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

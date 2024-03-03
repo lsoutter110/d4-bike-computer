@@ -84,20 +84,21 @@ void lcd_write_char_scale(const LCD lcd, const Font font, char c, const int x, c
 uint lcd_write_str_scale(const LCD lcd, const Font font, const char *str, const int x1, const int y1, const int x2, const int y2, const uint16_t col, const uint16_t bg, const int x_scale, const int y_scale) {
     const int xi = (font.w + font.x_space)*x_scale;
     const int yi = (font.h + font.y_space)*y_scale;
+    const int w = font.w*x_scale;
+    const int h = font.w*y_scale;
     int x = x1;
     int y = y1;
     for(char c; c = *str; str++) {
-        if(y > y2 - yi)
+        if(y + h - 1 > y2)
             return 1;
         if(c == '\n') {
             x = x1;
             y += yi;
             continue;
         }
-        if(x > x2 - xi) {
+        if(x + w - 1 > x2) {
             x = x1;
             y += yi;
-            continue;
         }
         lcd_write_char_scale(lcd, font, c, x, y, col, bg, x_scale, y_scale);
         x += xi;

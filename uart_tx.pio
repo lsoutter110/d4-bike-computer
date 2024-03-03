@@ -1,0 +1,54 @@
+/* SINGLE UART TRANSMITTER
+ * 
+ * Runs at F_CLK/16 baud (16 SM cycles per bit)
+ */
+
+.program uart_tx
+
+.define public BIT_T 16
+
+.wrap_target
+    ; assert stop bit (and init to high)
+    set pins 1          [BIT_T - 2]
+    ; wait for next byte
+    pull block
+    ; transmission has begun
+    ; assert start bit
+    set pins 0          [BIT_T - 2]
+    ; copy frame size from y
+    mov x y
+out_loop:
+    ; shift in frame_size bits
+    out pins 1          [BIT_T - 2]
+    jmp x-- out_loop 
+    ; loop to start
+.wrap
+
+% c-sdk {
+#include <hardware/clocks.h>
+
+static inline void uart_tx_program_init(PIO pio, uint sm, uint offset, uint pin, float baud, uint frame_size) {
+    pio_sm_config c = uart_tx_program_get_default_config(offset);
+
+    // pin
+    pio_gpio_init(pio, pin);
+    sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_set_pins(&c, pin, 1);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // shift register
+    sm_config_set_out_shift(&c, true, false, 0);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    // clock speed
+    const float div = clock_get_hz(clk_sys) / (baud * uart_tx_BIT_T);
+    sm_config_set_clkdiv(&c, div);
+
+    // set frame size
+    pio_sm_exec_wait_blocking(pio, sm, pio_encode_set(pio_y, frame_size-1));
+
+    // init sm
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
