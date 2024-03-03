@@ -6,6 +6,7 @@
 #include "arcana_lcd_rp2040/default5x7.h"
 #include <string.h>
 #include <stdio.h>
+#include "radio.h"
 
 typedef struct {
     char *text;
@@ -222,6 +223,10 @@ void redraw_debug(const LCD lcd) {
         "Speed: %3.2fm/s, stats:\n- Accepted: %d\n- Rejected: %d\n- Detection rate: %3.1f%%\n",
         speed, debug_stats.speed_accepted_readings, debug_stats.speed_rejected_readings, det_rate
     );
+    if(radio_rx_buf_readable()) {
+        const radio_packet_t p = radio_rx_buf_pop();
+        bufptr += sprintf(buf, "RX: {%02X %08X}", p.type, p.data.i);
+    }
 
     // Write buffer to screen
     push_buf(0);

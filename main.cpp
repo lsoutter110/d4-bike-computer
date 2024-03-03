@@ -4,6 +4,7 @@ extern "C" {
     #include "interface.h"
     #include "cbuf.h"
     #include "hes.h"
+    #include "radio.h"
 }
 // #include "zetaplus.h"
 #include "hun_zeta/transceiver.h"
@@ -58,9 +59,12 @@ int main() {
     const zeta::config_t zeta_cfg = {
         zeta::uart_baud_opt::UART_19200,
         ZETA_RX, ZETA_TX, ZETA_SDN,
-        ZETA_CHANNEL, ZETA_BYTES
+        ZETA_BYTES, ZETA_CHANNEL
     };
     zeta::transceiver ts(uart1, zeta_cfg);
+    ts.request_firmware();
+    zeta::response_t r = ts.read();
+    printf("%s", r.firmware_str);
     init_zeta_callback();
 
     // Initialise debugging stats

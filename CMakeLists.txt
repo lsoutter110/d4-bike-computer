@@ -22,6 +22,7 @@ add_executable(bike_comp_firmware
     interface.c
     cbuf.c
     hes.c
+    radio.c
 )
 
 pico_generate_pio_header(bike_comp_firmware ${CMAKE_CURRENT_LIST_DIR}/uart_tx.pio)
