@@ -47,6 +47,7 @@ void core1_main();
 
 int main() {
     stdio_init_all();
+    sleep_ms(2000);
 
     printf("stdio initialised\n");
 
@@ -61,9 +62,6 @@ int main() {
     // Setup ZETAPLUS Radio
     ts.set_rf_baud_rate(zeta::rf_baud_opt::RF_38400);
     ts.configure_rx(ZETA_BYTES, ZETA_CHANNEL);
-    ts.request_firmware();
-    zeta::response_t r = ts.read();
-    printf("%s", r.firmware_str);
     init_zeta_callback();
 
     // Initialise debugging stats
@@ -73,7 +71,7 @@ int main() {
     config = (config_t) {
         0,      // offset
         1.0,    // coefficient
-        1.0,    // wheel radius
+        0.05,    // wheel radius
         {1.0, 1.0, 1.0, 1.0}, // power to speed
         0,      // position
         10.0,   // target speed
@@ -101,6 +99,9 @@ int main() {
             post_status();
             last_status_post = get_micros();
         }
+
+        recalc_cadence();
+        redraw_flags |= REDRAW_FLAG_DEBUG;
     }
 }
 

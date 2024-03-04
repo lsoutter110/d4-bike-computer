@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "radio.h"
+#include <math.h>
 
 typedef struct {
     char *text;
@@ -54,56 +55,141 @@ void recalc_speed() {
     uint64_t mean = 0;
     const uint start = buf_ss.tail-buf_ss.buf;
     const uint end = (buf_ss.head == buf_ss.buf ? SS_BUFSIZE : buf_ss.head-buf_ss.buf) - 1;
-    printf("[%2u, %2u], ", start, end);
     for(uint i=start; i!=end; i=mod_buf_ss(i+1), diff_n++) {
         const uint32_t diff = buf_ss.buf[mod_buf_ss(i+1)]-buf_ss.buf[i];
         diffs[diff_n] = diff;
         mean += diff;
-        printf("%8u ", diff);
     }
     // Check there are actually readings to process
     if(!diff_n) return;
-    printf("(%8llu/%8u), ", mean, diff_n);
     mean /= diff_n;
 
-    printf("initm = %8llu, ", mean);
-    
     // reject out of threshold diffs
     const uint32_t upper = mean * 1.75;
     const uint32_t lower = mean * 0.5;
     uint32_t count = 0;
+    bool accepted;
     mean = 0;
-    for(int i=0; i<diff_n; i++) 
-        if(diffs[i] > lower && diffs[i] < upper) {
+    for(int i=0; i<diff_n; i++) {
+        accepted = diffs[i] > lower && diffs[i] < upper;
+        if(accepted) {
             mean += diffs[i];
             count++;
         }
+    }
     mean /= count;
     // speed = (2*pi*wheel_r) / (time_ms / 1000)
     speed = 2.0*M_PI*1000.0*config.wheel_r / mean;
 
     // Update debug stats
-    debug_stats.speed_accepted_readings += count;
-    debug_stats.speed_rejected_readings += diff_n-count;
-    printf("avg = %8llu\n", mean);
+    if(accepted)
+        debug_stats.speed_accepted_readings++;
+    else
+        debug_stats.speed_rejected_readings++;
 
     // Update display draw
     redraw_flags |= REDRAW_FLAG_DEBUG | REDRAW_FLAG_SPEED;
 }
 
+#define mod_buf_fs(x) ((x)>=FS_BUFSIZE ? (x)-FS_BUFSIZE : (x))
+
 void recalc_cadence() {
+    // Make local buffer copy
+    float f[FS_BUFSIZE];
+    float t[FS_BUFSIZE];
+    const uint start = buf_fs.tail-buf_fs.buf;
+    const uint end = buf_fs.head-buf_fs.buf;
+    uint bufsize;
+    for(uint i=start, j=0; i!=end; i=mod_buf_fs(i+1), j++) {
+        f[j] = buf_fs.buf[i].force;
+        t[j] = buf_fs.buf[i].time;
+        bufsize++;
+    }
+    printf("Bufsize = %u\n", bufsize);
 
-}
+    // Get RMS
+    float f_rms = 0.0;
+    for(uint i=0; i<bufsize; i++) {
+        f_rms += f[i]*f[i];
+    }
+    f_rms = sqrtf(f_rms/bufsize);
+    const float f_upper_th = f_rms;
+    const float f_lower_th = f_rms/2;
 
-void redraw_speed(const LCD lcd) {
-    if(cur_screen != SCREEN_RACE)
-        return;    
+    // Run smoothing algorithm
+    float f_sum = 0.0;
+    const float kernel[] = {0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1, 0.1};
+    const uint k_len = sizeof(kernel)/sizeof(float);
+    float f_smoothed[FS_BUFSIZE];
+    for(int i=0; i<bufsize; i++) {
+        float fs = 0;
+        for(int ki=0; ki<k_len; ki++) {
+            const int fi = i+ki-(k_len-1)/2;
+            if(fi >= 0 && fi < bufsize) {
+                fs += f[fi]*kernel[ki];
+            }
+        }
+        f_smoothed[i] = fs;
+    }
+
+    // Rise / fall detection
+    bool peak = false;
+    uint32_t last_rise = 0;
+    uint32_t diff_sum = 0;
+    uint diff_n = 0;
+    for(uint fi=0; fi<bufsize; fi++) {
+        if(!peak && f_smoothed[fi] > f_upper_th) {
+            peak = true;
+            if(last_rise != 0) {
+                diff_sum += t[fi] - last_rise;
+                diff_n++;
+            }
+            last_rise = t[fi];
+        }
+
+        if(peak && f_smoothed[fi] < f_lower_th) {
+            peak = false;
+        }
+    }
+
+    // Calculate cadence (cadence=60/avg_period)
+    cadence = 60.0*1000.0*(float)diff_n/(float)diff_sum;
 }
 
 static inline void draw_split_rect(const LCD lcd, const int x1, const int y1, const int x2, const int y2, const int hs, const uint16_t lower_col, const uint16_t upper_col) {
     const int ys = hs > y2-y1+1 ? y1-1 : (hs < 0 ? y2 : y2-hs);
     lcd_draw_rect_fill(lcd, x1, y1, x2, ys, upper_col);
     lcd_draw_rect_fill(lcd, x1, ys+1, x2, y2, lower_col);
+}
+
+void redraw_speed(const LCD lcd) {
+    if(cur_screen != SCREEN_RACE)
+        return;    
+
+    static const int PBAR_X = 140, BAR_W = 80, PBAR_Y = 20, BAR_H = 240;
+    static const int MAX_SPEED = 20;
+    static const int BORDER_W = 4;
+    const uint16_t BORDER_COL = rgb_to_u16(255, 255, 255);
+    const uint16_t BAR_BG_COL = rgb_to_u16(0,0,0);
+    const uint16_t TARGET_COL = rgb_to_u16(0,128,255);
+    const uint16_t LOWER_COL = rgb_to_u16(0, 255, 0);
+    const uint16_t UPPER_COL = rgb_to_u16(255, 0, 0);
+
+    const int speed_target_h = config.target_speed*(BAR_H-2*BORDER_W)/MAX_SPEED;
+    const int speed_target_y = PBAR_Y+BAR_H-BORDER_W-1-speed_target_h;
+    const int speed_h = speed*(BAR_H-2*BORDER_W)/MAX_SPEED;
+
+    // Draw speed bar
+    lcd_draw_rect_fill(lcd, PBAR_X, PBAR_Y, PBAR_X+BORDER_W-1, PBAR_Y+BAR_H-1, BORDER_COL);
+    lcd_draw_rect_fill(lcd, PBAR_X+BAR_W-BORDER_W, PBAR_Y, PBAR_X+BAR_W-1, PBAR_Y+BAR_H-1, BORDER_COL);
+    lcd_draw_rect_fill(lcd, PBAR_X, PBAR_Y, PBAR_X+BAR_W-1, PBAR_Y+BORDER_W-1, BORDER_COL);
+    lcd_draw_rect_fill(lcd, PBAR_X, PBAR_Y+BAR_H-BORDER_W, PBAR_X+BAR_W-1, PBAR_Y+BAR_H-1, BORDER_COL);
+
+    draw_split_rect(lcd, PBAR_X+BORDER_W, speed_target_y+1, PBAR_X+BAR_W-BORDER_W-1, PBAR_Y+BAR_H-BORDER_W-1, speed_h, LOWER_COL, BAR_BG_COL);
+    
+    draw_split_rect(lcd, PBAR_X+BORDER_W, PBAR_Y+BORDER_W, PBAR_X+BAR_W-BORDER_W-1, speed_target_y-BORDER_W, speed_h-speed_target_h-BORDER_W+1, UPPER_COL, BAR_BG_COL);
+
+    lcd_draw_rect_fill(lcd, PBAR_X+BORDER_W, speed_target_y-BORDER_W+1, PBAR_X+BAR_W-BORDER_W-1, speed_target_y, TARGET_COL);
 }
 
 void redraw_power(const LCD lcd) {
@@ -122,8 +208,6 @@ void redraw_power(const LCD lcd) {
     const int power_target_h = target_power*(BAR_H-2*BORDER_W)/MAX_POWER;
     const int power_target_y = PBAR_Y+BAR_H-BORDER_W-1-power_target_h;
     const int power_h = power*(BAR_H-2*BORDER_W)/MAX_POWER;
-    // const int power_lower_h = power_h < power_target_h ? power_h : power_target_h;
-    // const int power_upper_h = power_h > power_target_h+BORDER_W-1 ? power_h-power_target_h-BORDER_W+1 : 0;
 
     // Draw power bar
     lcd_draw_rect_fill(lcd, PBAR_X, PBAR_Y, PBAR_X+BORDER_W-1, PBAR_Y+BAR_H-1, BORDER_COL);
@@ -134,11 +218,6 @@ void redraw_power(const LCD lcd) {
     draw_split_rect(lcd, PBAR_X+BORDER_W, power_target_y+1, PBAR_X+BAR_W-BORDER_W-1, PBAR_Y+BAR_H-BORDER_W-1, power_h, LOWER_COL, BAR_BG_COL);
     
     draw_split_rect(lcd, PBAR_X+BORDER_W, PBAR_Y+BORDER_W, PBAR_X+BAR_W-BORDER_W-1, power_target_y-BORDER_W, power_h-power_target_h-BORDER_W+1, UPPER_COL, BAR_BG_COL);
-
-    // lcd_draw_rect_fill(lcd, PBAR_X+BORDER_W+40, PBAR_Y+BAR_H-power_lower_h, PBAR_X+BAR_W-BORDER_W-1+40, PBAR_Y+BAR_H-BORDER_W-1, POWER_LOWER_COL);
-    // lcd_draw_rect_fill(lcd, PBAR_X+BORDER_W+40, PBAR_Y+BAR_H-power_target_h+1, PBAR_X+BAR_W-BORDER_W-1+40, PBAR_Y+BAR_H-power_lower_h-1, BAR_BG_COL);
-
-    // lcd_draw_rect_fill(lcd, PBAR_X+BORDER_W+80, PBAR_Y+BAR_H-power_target_h-BORDER_W-1, PBAR_X+BAR_W+BORDER_W-1+80, PBAR_Y+BAR_H-power_target_h-power_upper_h, POWER_UPPER_COL);
 
     lcd_draw_rect_fill(lcd, PBAR_X+BORDER_W, power_target_y-BORDER_W+1, PBAR_X+BAR_W-BORDER_W-1, power_target_y, TARGET_COL);
 }
@@ -223,6 +302,10 @@ void redraw_debug(const LCD lcd) {
         "Speed: %3.2fm/s, stats:\n- Accepted: %d\n- Rejected: %d\n- Detection rate: %3.1f%%\n",
         speed, debug_stats.speed_accepted_readings, debug_stats.speed_rejected_readings, det_rate
     );
+
+    bufptr += sprintf(buf+bufptr, "Adjusted speed: %3.2f\n", adjusted_speed);
+    bufptr += sprintf(buf+bufptr, "Cadence: %3.2f\n", cadence);
+    bufptr += sprintf(buf+bufptr, "Power: %3.2fW\n", power);
 
     bufptr += sprintf(buf+bufptr, "RX: {%02X %08X}\n", last_packet.type, last_packet.data.i);
 

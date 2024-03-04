@@ -103,9 +103,11 @@ void decode_packet(const radio_packet_t p) {
         // Status / targets
         case PACKET_TYPE_POSITION:
             config.position = p.data.i;
+            recalc_target_power();
             return;
         case PACKET_TYPE_TARGET_SPEED:
             config.target_speed = p.data.f;
+            recalc_target_power();
             return;
         // Misc
         case PACKET_TYPE_OPEN:

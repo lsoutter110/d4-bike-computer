@@ -25,6 +25,7 @@ void redraw_speed(const LCD lcd);
 void redraw_main_menu(const LCD lcd);
 void redraw_debug(const LCD lcd);
 
+void recalc_cadence();
 void recalc_power();
 void recalc_speed();
 void recalc_target_power();
