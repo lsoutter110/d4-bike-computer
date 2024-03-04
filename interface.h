@@ -49,6 +49,7 @@ typedef struct {
     float p_to_s[4];
     uint32_t position;
     float target_speed;
+    bool connection_open;
 } config_t;
 
 // 

@@ -26,12 +26,6 @@ extern "C" {
 
 #define HES_PIN 28
 
-#define ZETA_TX 4
-#define ZETA_RX 5
-#define ZETA_SDN 6
-#define ZETA_CHANNEL 2
-#define ZETA_BYTES 5
-
 extern pio_uart_t fs_uart;
 extern pio_uart_t ss_uart;
 extern config_t config;
@@ -39,6 +33,15 @@ extern buf_fs_t buf_fs;
 extern uint32_t redraw_flags;
 extern float power;
 extern float target_power;
+extern radio_packet_t last_packet;
+
+// Setup zetaplus radio
+const zeta::config_t ZETA_CFG = {
+    zeta::uart_baud_opt::UART_19200,
+    ZETA_RX, ZETA_TX, ZETA_SDN,
+    ZETA_BYTES, ZETA_CHANNEL
+};
+zeta::transceiver ts(ZETA_UART, ZETA_CFG);
 
 void core1_main();
 
@@ -56,12 +59,8 @@ int main() {
     init_hes(HES_PIN);
     
     // Setup ZETAPLUS Radio
-    const zeta::config_t zeta_cfg = {
-        zeta::uart_baud_opt::UART_19200,
-        ZETA_RX, ZETA_TX, ZETA_SDN,
-        ZETA_BYTES, ZETA_CHANNEL
-    };
-    zeta::transceiver ts(uart1, zeta_cfg);
+    ts.set_rf_baud_rate(zeta::rf_baud_opt::RF_38400);
+    ts.configure_rx(ZETA_BYTES, ZETA_CHANNEL);
     ts.request_firmware();
     zeta::response_t r = ts.read();
     printf("%s", r.firmware_str);
@@ -83,24 +82,25 @@ int main() {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-    while(1) {
-        // printf("loop %d\n", uart_is_readable(UART_FS));
-        // sleep_ms(1000);
-        // pio_sm_put_blocking(fs_uart.tx_pio, fs_uart.tx_sm, 0x5A);
-        // pio_sm_put_blocking(ss_uart.tx_pio, ss_uart.tx_sm, 0xF3);
-        // float mean = 0;
-        // for(int i=0; i<FS_BUFSIZE; i++) {
-        //     mean += buf_fs.buf[i].force;
-        // }
-        // mean /= FS_BUFSIZE;
-        // mean = (mean - 497340.0)/4649.7016;
-        // printf("%fN\n", mean);
-        // sleep_ms(100);
+    uint64_t last_status_post;
+    const uint64_t next_status_post = 500000; //us
 
+    while(1) {
         power = power > 500 ? 0 : power+10;
         target_power = target_power > 500 ? 0 : target_power+1;
         redraw_flags |= REDRAW_FLAG_POWER;
         sleep_ms(10);
+
+        // Check rx buffer and process
+        if(radio_rx_buf_readable()) {
+            last_packet = radio_rx_buf_pop();
+            decode_packet(last_packet);
+        }
+
+        if(config.connection_open && get_micros()-last_status_post > next_status_post) {
+            post_status();
+            last_status_post = get_micros();
+        }
     }
 }
 
@@ -134,3 +134,8 @@ void core1_main() {
             redraw_debug(lcd);
     }
 }
+
+// requires transceiver lib
+// void send_packet(radio_packet_t p) {
+//     ts.send_from<radio_packet_t>(p);
+// }

@@ -27,7 +27,7 @@ config_t config;
 screen_t cur_screen;
 uint32_t redraw_flags;
 uint menu_pos;
-bool debug_reset_measures;
+radio_packet_t last_packet;
 
 const menu_item_t MAIN_MENU_ITEMS[] = {
     {"Race", SCREEN_RACE},
@@ -219,14 +219,22 @@ void redraw_debug(const LCD lcd) {
 
     float total_events = debug_stats.speed_accepted_readings + debug_stats.speed_rejected_readings;
     float det_rate = (debug_stats.speed_accepted_readings*100)/total_events;
-    bufptr += sprintf(buf,
+    bufptr += sprintf(buf+bufptr,
         "Speed: %3.2fm/s, stats:\n- Accepted: %d\n- Rejected: %d\n- Detection rate: %3.1f%%\n",
         speed, debug_stats.speed_accepted_readings, debug_stats.speed_rejected_readings, det_rate
     );
-    if(radio_rx_buf_readable()) {
-        const radio_packet_t p = radio_rx_buf_pop();
-        bufptr += sprintf(buf, "RX: {%02X %08X}", p.type, p.data.i);
-    }
+
+    bufptr += sprintf(buf+bufptr, "RX: {%02X %08X}\n", last_packet.type, last_packet.data.i);
+
+    bufptr += sprintf(buf+bufptr,
+        "config = {\n  offset: %u\n  coeff: %f\n  wheel r: %f\n  position: %u\n  target speed: %f\n  connection open: %u\n}\n",
+        config.fs_offset,
+        config.fs_coeff,
+        config.wheel_r,
+        config.position,
+        config.target_speed,
+        config.connection_open
+    );
 
     // Write buffer to screen
     push_buf(0);
@@ -279,10 +287,4 @@ void bt_callback(uint gpio, uint32_t event) {
             reset_debug_stats();
         redraw_flags |= REDRAW_FLAG_MAIN_MENU | REDRAW_FLAG_DEBUG;
     }
-}
-
-void bt_cycle_callback() {
-    gpio_acknowledge_irq(BT_CYCLE, GPIO_IRQ_EDGE_RISE);
-    gpio_put(PICO_DEFAULT_LED_PIN, !gpio_get(PICO_DEFAULT_LED_PIN));
-
 }
