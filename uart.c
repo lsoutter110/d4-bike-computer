@@ -6,9 +6,13 @@
 #include "uart_tx.pio.h"
 #include "uart_rx.pio.h"
 #include "cbuf.h"
+#include "interface.h"
 
 pio_uart_t fs_uart;
 pio_uart_t ss_uart;
+
+extern force_data_t last_force_packet;
+extern config_t config;
 
 uint64_t get_micros() {
     const uint32_t l = timer_hw->timelr;
@@ -66,9 +70,11 @@ void on_uart_fs_rx() {
             // Buffer data
             data[p_cnt++] = byte;
             if(p_cnt >= sizeof(force_data_t)) {
-                const force_data_t fd = *(force_data_t *)data;
+                force_data_t fd = *(force_data_t *)data;
+                fd.force = (fd.force - config.fs_offset)*config.fs_coeff;
+                last_force_packet = fd;
                 buf_fs_push(fd);
-                // printf("Received force %.000fN and time %dms\n", fd.force, fd.time);
+                printf("Received force %.000fN and time %dms\n", fd.force, fd.time);
                 gpio_put(PICO_DEFAULT_LED_PIN, !gpio_get(PICO_DEFAULT_LED_PIN));
                 mode = 0;
             }

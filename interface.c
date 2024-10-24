@@ -29,6 +29,7 @@ screen_t cur_screen;
 uint32_t redraw_flags;
 uint menu_pos;
 radio_packet_t last_packet;
+force_data_t last_force_packet;
 
 const menu_item_t MAIN_MENU_ITEMS[] = {
     {"Race", SCREEN_RACE},
@@ -39,7 +40,8 @@ const uint MENU_LEN = sizeof(MAIN_MENU_ITEMS)/sizeof(menu_item_t);
 debug_stats_t debug_stats;
 
 void recalc_target_power() {
-    target_power = config.target_speed / config.p_to_s[config.position];
+    if(config.p_to_s[config.position])
+        target_power = config.target_speed / config.p_to_s[config.position];
 }
 
 void recalc_adjusted_speed() {
@@ -99,13 +101,12 @@ void recalc_cadence() {
     float t[FS_BUFSIZE];
     const uint start = buf_fs.tail-buf_fs.buf;
     const uint end = buf_fs.head-buf_fs.buf;
-    uint bufsize;
+    uint bufsize = 0;
     for(uint i=start, j=0; i!=end; i=mod_buf_fs(i+1), j++) {
         f[j] = buf_fs.buf[i].force;
         t[j] = buf_fs.buf[i].time;
         bufsize++;
     }
-    printf("Bufsize = %u\n", bufsize);
 
     // Get RMS
     float f_rms = 0.0;
@@ -309,6 +310,11 @@ void redraw_debug(const LCD lcd) {
 
     bufptr += sprintf(buf+bufptr, "RX: {%02X %08X}\n", last_packet.type, last_packet.data.i);
 
+    bufptr += sprintf(buf+bufptr, "Force: {%fN %u}\n", last_force_packet.force, last_force_packet.time);
+    float f_mean = 0.0;
+    for(uint i=0; i<FS_BUFSIZE; i++) f_mean += buf_fs.buf[i].force;
+    bufptr += sprintf(buf+bufptr, "- buffer mean: %fN\n", f_mean/FS_BUFSIZE);
+
     bufptr += sprintf(buf+bufptr,
         "config = {\n  offset: %u\n  coeff: %f\n  wheel r: %f\n  position: %u\n  target speed: %f\n  connection open: %u\n}\n",
         config.fs_offset,
@@ -330,6 +336,11 @@ void reset_debug_stats() {
         0,      // speed_accepted_readings
         0,      // speed_rejected_readings
     };
+
+    //calibrate load cell
+    float f_mean = 0.0;
+    for(uint i=0; i<FS_BUFSIZE; i++) f_mean += buf_fs.buf[i].force;
+    config.fs_offset += f_mean/FS_BUFSIZE/config.fs_coeff;
 }
 
 void init_interface_buttons() {

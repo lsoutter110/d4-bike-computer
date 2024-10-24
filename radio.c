@@ -123,11 +123,11 @@ void decode_packet(const radio_packet_t p) {
 }
 
 void send_packet(const radio_packet_t p) {
-    uart_putc(ZETA_UART, 'A');
-    uart_putc(ZETA_UART, 'T');
-    uart_putc(ZETA_UART, 'S');
-    uart_putc(ZETA_UART, ZETA_CHANNEL);
-    uart_putc(ZETA_UART, sizeof(radio_packet_t));
+    // uart_putc(ZETA_UART, 'A');
+    // uart_putc(ZETA_UART, 'T');
+    // uart_putc(ZETA_UART, 'S');
+    // uart_putc(ZETA_UART, ZETA_CHANNEL);
+    // uart_putc(ZETA_UART, sizeof(radio_packet_t));
     for(uint i=0; i<sizeof(radio_packet_t); i++) {
         uart_putc(ZETA_UART, ((uint8_t *)&p)[i]);
     }

@@ -15,7 +15,7 @@
 #define ZETA_RX_BUFSIZE 8
 #define ZETA_RX_TIMEOUT 10000
 
-#define ZETA_PACKET_HEADER 4
+#define ZETA_PACKET_HEADER 0
 typedef struct __attribute__((__packed__)) {
     uint8_t type;
     union {

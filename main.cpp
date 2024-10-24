@@ -62,6 +62,7 @@ int main() {
     // Setup ZETAPLUS Radio
     ts.set_rf_baud_rate(zeta::rf_baud_opt::RF_38400);
     ts.configure_rx(ZETA_BYTES, ZETA_CHANNEL);
+    while(uart_is_readable(ZETA_UART)) uart_getc(ZETA_UART);
     init_zeta_callback();
 
     // Initialise debugging stats
@@ -69,19 +70,23 @@ int main() {
 
     // TEMPORARY: INITIALISE CONFIG
     config = (config_t) {
-        0,      // offset
-        1.0,    // coefficient
-        0.05,    // wheel radius
+        469601,      // offset
+        0.00023280629,    // coefficient
+        0.15915494309189535,    // wheel radius
         {1.0, 1.0, 1.0, 1.0}, // power to speed
         0,      // position
         10.0,   // target speed
+        true,      // connection open
     };
 
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
-    uint64_t last_status_post;
+    uint64_t last_status_post = 0;
     const uint64_t next_status_post = 500000; //us
+
+    uint64_t last_power_calc = 0;
+    const uint64_t next_power_calc = 100000;
 
     while(1) {
         power = power > 500 ? 0 : power+10;
@@ -100,8 +105,11 @@ int main() {
             last_status_post = get_micros();
         }
 
-        recalc_cadence();
-        redraw_flags |= REDRAW_FLAG_DEBUG;
+        if(get_micros()-last_power_calc > next_power_calc) {
+            recalc_cadence();
+            redraw_flags |= REDRAW_FLAG_DEBUG;
+            last_power_calc = get_micros();
+        }
     }
 }
 

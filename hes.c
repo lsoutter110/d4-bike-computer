@@ -15,11 +15,3 @@ void init_hes(uint pin) {
     gpio_set_input_enabled(pin, true);
     gpio_set_irq_enabled_with_callback(pin, GPIO_IRQ_EDGE_FALL, true, &hes_callback);
 }
-
-
-/*
-GET WATER
-TAKE SAW FOR STRIPBOARD
-TAKE SCALE!!!!!!!
-TAKE ETH SWITCH
-*/
